@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Pipeline Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d1018;
+    --bg-2:#10141f;
+    --panel:#151a27;
+    --panel-2:#1a2030;
+    --line:#242c40;
+    --line-soft:#1e2536;
+    --ink:#e9edf7;
+    --muted:#8c96b2;
+    --faint:#5b647d;
+    /* two meaningful accents: the two retrieval methods */
+    --semantic:#7c6ff0;      /* vector / semantic search */
+    --semantic-soft:#7c6ff033;
+    --keyword:#f0a24a;       /* BM25 / keyword search */
+    --keyword-soft:#f0a24a33;
+    --hybrid:#2dd4bf;        /* merged winners */
+    --generate:#4ade9e;      /* final answer */
+    --danger:#f0678a;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #16203a 0%, transparent 55%),
+      radial-gradient(900px 500px at 100% 0%, #1b1533 0%, transparent 50%),
+      var(--bg);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:36px 22px 90px}
+
+  /* ---------- header ---------- */
+  header.hero{margin-bottom:30px}
+  .eyebrow{
+    font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--faint);display:flex;align-items:center;gap:10px;margin-bottom:16px;
+  }
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--line);display:inline-block}
+  h1{
+    font-family:'Sora',sans-serif;font-weight:700;font-size:clamp(30px,5vw,50px);
+    line-height:1.02;letter-spacing:-.02em;margin:0 0 14px;
+  }
+  h1 .r{color:var(--semantic)} h1 .a{color:var(--keyword)} h1 .g{color:var(--generate)}
+  .lede{color:var(--muted);font-size:16.5px;max-width:660px;margin:0}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .phasebar{display:flex;gap:8px;margin-top:22px;flex-wrap:wrap}
+  .phasebar span{
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);
+    border:1px solid var(--line);border-radius:100px;padding:6px 12px;background:var(--bg-2);
+  }
+  .phasebar span b{color:var(--ink);font-weight:500}
+
+  /* ---------- panels ---------- */
+  .panel{
+    background:linear-gradient(180deg,var(--panel) 0%, var(--bg-2) 100%);
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px;margin-top:22px;position:relative;overflow:hidden;
+  }
+  .panel-head{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+  .panel-num{
+    font-family:var(--mono);font-size:13px;color:var(--faint);font-weight:700;
+    border:1px solid var(--line);border-radius:8px;padding:3px 9px;
+  }
+  .panel h2{font-family:'Sora',sans-serif;font-size:20px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .panel-sub{color:var(--muted);font-size:14px;margin:2px 0 18px}
+  .offline-tag{margin-left:auto;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--keyword);border:1px solid var(--keyword-soft);background:var(--keyword-soft);border-radius:100px;padding:4px 10px}
+  .online-tag{margin-left:auto;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--semantic);border:1px solid var(--semantic-soft);background:var(--semantic-soft);border-radius:100px;padding:4px 10px}
+
+  /* ---------- indexing flow ---------- */
+  .idx-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:6px}
+  .idx-col{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:10px;padding:12px 12px 14px;min-height:120px}
+  .idx-col h4{margin:0 0 10px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .idx-col h4 .dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .idx-col.active h4 .dot{background:var(--semantic);box-shadow:0 0 8px var(--semantic)}
+  .doc-chip,.chunk-chip{
+    font-size:12px;color:var(--ink);background:var(--panel-2);border:1px solid var(--line-soft);
+    border-radius:7px;padding:7px 9px;margin-bottom:7px;opacity:0;transform:translateY(6px);
+    transition:opacity .35s ease,transform .35s ease;
+  }
+  .doc-chip .t{color:var(--faint);font-family:var(--mono);font-size:10px;display:block;margin-bottom:2px}
+  .chunk-chip{border-left:2px solid var(--semantic)}
+  .vec-chip{
+    font-family:var(--mono);font-size:10.5px;color:var(--semantic);background:var(--panel-2);
+    border:1px solid var(--semantic-soft);border-radius:7px;padding:6px 8px;margin-bottom:7px;
+    letter-spacing:.02em;opacity:0;transform:translateY(6px);transition:opacity .35s ease,transform .35s ease;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .store-note{font-size:12px;color:var(--muted);opacity:0;transition:opacity .5s ease}
+  .store-note.show{opacity:1}
+  .store-count{font-family:var(--mono);color:var(--hybrid);font-size:22px;font-weight:700;display:block;margin-bottom:2px}
+  .show-anim{opacity:1!important;transform:none!important}
+  .arrow-row{display:flex;justify-content:space-around;color:var(--faint);font-size:18px;margin:8px 0 0}
+
+  /* ---------- controls ---------- */
+  .controls{display:grid;grid-template-columns:1fr;gap:16px}
+  .q-row{display:flex;gap:10px;flex-wrap:wrap}
+  .q-input{
+    flex:1;min-width:240px;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);font-size:15px;padding:13px 15px;font-family:'Inter',sans-serif;
+  }
+  .q-input:focus{outline:none;border-color:var(--semantic);box-shadow:0 0 0 3px var(--semantic-soft)}
+  .q-input::placeholder{color:var(--faint)}
+  .presets{display:flex;gap:7px;flex-wrap:wrap}
+  .preset{
+    font-size:12.5px;color:var(--muted);background:var(--bg-2);border:1px solid var(--line);
+    border-radius:100px;padding:6px 12px;cursor:pointer;transition:all .18s ease;font-family:'Inter',sans-serif;
+  }
+  .preset:hover{border-color:var(--semantic);color:var(--ink)}
+  .preset:focus-visible{outline:2px solid var(--semantic);outline-offset:2px}
+
+  .opt-row{display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+  .seg{display:inline-flex;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:4px;gap:4px}
+  .seg button{
+    font-family:var(--mono);font-size:12.5px;color:var(--muted);background:transparent;border:none;
+    border-radius:7px;padding:8px 14px;cursor:pointer;transition:all .16s ease;letter-spacing:.02em;
+  }
+  .seg button:hover{color:var(--ink)}
+  .seg button:focus-visible{outline:2px solid var(--semantic);outline-offset:2px}
+  .seg button[data-mode].on{background:var(--panel-2);color:var(--ink)}
+  .seg button[data-mode="keyword"].on{color:var(--keyword);box-shadow:inset 0 0 0 1px var(--keyword-soft)}
+  .seg button[data-mode="semantic"].on{color:var(--semantic);box-shadow:inset 0 0 0 1px var(--semantic-soft)}
+  .seg button[data-mode="hybrid"].on{color:var(--hybrid);box-shadow:inset 0 0 0 1px #2dd4bf33}
+
+  .ctl{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
+  .ctl label{font-family:var(--mono);font-size:12px;letter-spacing:.03em}
+  input[type=range]{accent-color:var(--semantic);width:120px}
+  .kval{font-family:var(--mono);color:var(--ink);font-weight:700;min-width:14px;display:inline-block;text-align:center}
+  .switch{position:relative;display:inline-block;width:42px;height:23px}
+  .switch input{opacity:0;width:0;height:0}
+  .slider-sw{position:absolute;cursor:pointer;inset:0;background:var(--line);border-radius:100px;transition:.2s}
+  .slider-sw::before{content:"";position:absolute;height:17px;width:17px;left:3px;top:3px;background:var(--faint);border-radius:50%;transition:.2s}
+  .switch input:checked + .slider-sw{background:var(--hybrid)}
+  .switch input:checked + .slider-sw::before{transform:translateX(19px);background:#0d1018}
+  .switch input:focus-visible + .slider-sw{outline:2px solid var(--semantic);outline-offset:2px}
+
+  .run-btn{
+    font-family:'Sora',sans-serif;font-weight:600;font-size:15px;color:#0d1018;
+    background:linear-gradient(180deg,#a99bff,var(--semantic));border:none;border-radius:10px;
+    padding:13px 26px;cursor:pointer;transition:transform .12s ease,filter .18s ease;
+    box-shadow:0 6px 20px -8px var(--semantic);
+  }
+  .run-btn:hover{filter:brightness(1.06)}
+  .run-btn:active{transform:translateY(1px)}
+  .run-btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+  .run-btn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+
+  /* ---------- pipeline stages ---------- */
+  #pipeline{margin-top:6px}
+  .stage{
+    border:1px solid var(--line-soft);border-radius:12px;margin-top:14px;background:var(--bg-2);
+    overflow:hidden;opacity:.32;transition:opacity .4s ease,border-color .4s ease;
+  }
+  .stage.lit{opacity:1;border-color:var(--line)}
+  .stage.lit.sem{border-color:var(--semantic-soft)}
+  .stage-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid transparent}
+  .stage.lit .stage-head{border-bottom-color:var(--line-soft)}
+  .stage-idx{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--faint);border:1px solid var(--line);border-radius:7px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .stage.lit .stage-idx{color:var(--ink);border-color:var(--line)}
+  .stage-title{font-family:'Sora',sans-serif;font-weight:600;font-size:15.5px}
+  .stage-tag{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto;text-align:right}
+  .stage-body{padding:0 18px;max-height:0;overflow:hidden;transition:max-height .5s ease,padding .5s ease}
+  .stage.lit .stage-body{padding:16px 18px 18px;max-height:1400px}
+  .stage-note{font-size:12.5px;color:var(--muted);margin:0 0 12px;padding:9px 12px;background:var(--panel-2);border-radius:8px;border-left:2px solid var(--semantic)}
+  .stage-note.warn{border-left-color:var(--keyword)}
+  .stage-note b{color:var(--ink);font-weight:600}
+
+  .tokens{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .tok{font-family:var(--mono);font-size:12px;padding:4px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line-soft);color:var(--ink)}
+  .tok.exp{color:var(--semantic);border-color:var(--semantic-soft);background:var(--semantic-soft)}
+  .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin:0 0 7px;display:block}
+  .qvec{font-family:var(--mono);font-size:12px;color:var(--semantic);background:var(--panel-2);border:1px solid var(--semantic-soft);border-radius:8px;padding:9px 12px;overflow-x:auto;white-space:nowrap}
+
+  /* candidate rows */
+  .cand{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+  .cand:last-child{border-bottom:none}
+  .cand-rank{font-family:var(--mono);font-size:12px;color:var(--faint);text-align:center}
+  .cand.top .cand-rank{color:var(--hybrid);font-weight:700}
+  .cand-body .src{font-family:var(--mono);font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .cand-body .txt{font-size:13px;color:var(--muted);margin-top:1px}
+  .cand.top .cand-body .txt{color:var(--ink)}
+  .bars{display:flex;flex-direction:column;gap:4px;min-width:150px}
+  .bar-line{display:flex;align-items:center;gap:8px}
+  .bar-track{width:88px;height:7px;background:var(--panel-2);border-radius:100px;overflow:hidden}
+  .bar-fill{height:100%;width:0;border-radius:100px;transition:width .8s cubic-bezier(.2,.8,.2,1)}
+  .bar-fill.sem{background:var(--semantic)}
+  .bar-fill.key{background:var(--keyword)}
+  .bar-fill.hyb{background:var(--hybrid)}
+  .bar-val{font-family:var(--mono);font-size:11px;min-width:34px}
+  .bar-val.sem{color:var(--semantic)} .bar-val.key{color:var(--keyword)} .bar-val.hyb{color:var(--hybrid)}
+  .cutline{display:flex;align-items:center;gap:10px;margin:4px 0;color:var(--faint);font-family:var(--mono);font-size:10.5px;letter-spacing:.08em}
+  .cutline::before,.cutline::after{content:"";flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 12px)}
+
+  /* rerank compare */
+  .rr-grid{display:grid;grid-template-columns:1fr 34px 1fr;gap:6px;align-items:center}
+  .rr-col h5{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:0 0 8px}
+  .rr-item{font-size:12px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line-soft);border-radius:7px;padding:7px 10px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px}
+  .rr-item .s{font-family:var(--mono);color:var(--faint)}
+  .rr-col.after .rr-item{border-left:2px solid var(--hybrid);color:var(--ink)}
+  .rr-col.after .rr-item .s{color:var(--hybrid)}
+  .rr-mid{text-align:center;color:var(--faint);font-size:20px}
+
+  /* augment prompt */
+  .prompt-box{font-family:var(--mono);font-size:12.5px;line-height:1.7;background:#0a0d15;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+  .p-role{color:var(--faint)}
+  .p-instr{color:var(--muted)}
+  .p-ctx-lbl{color:var(--keyword)}
+  .p-chunk{color:var(--semantic);display:block;padding:2px 0 2px 14px;border-left:2px solid var(--semantic-soft);margin:3px 0}
+  .p-q-lbl{color:var(--generate)}
+  .p-q{color:var(--ink)}
+
+  /* generate */
+  .answer{font-size:15px;line-height:1.65;color:var(--ink);background:var(--panel-2);border:1px solid #4ade9e2e;border-left:3px solid var(--generate);border-radius:10px;padding:15px 17px}
+  .answer .cite{font-family:var(--mono);font-size:10.5px;color:var(--generate);text-transform:uppercase;letter-spacing:.06em}
+  .gen-caveat{font-size:12px;color:var(--faint);margin-top:10px;font-style:italic}
+
+  .placeholder{color:var(--faint);font-size:14px;text-align:center;padding:30px 10px;font-family:var(--mono)}
+
+  footer{margin-top:40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line-soft);padding-top:18px;line-height:1.7}
+  footer b{color:var(--muted);font-weight:600}
+  .method-key{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-family:var(--mono);font-size:11.5px}
+  .method-key span{display:flex;align-items:center;gap:6px;color:var(--muted)}
+  .swatch{width:10px;height:10px;border-radius:3px}
+
+  @media (max-width:720px){
+    .idx-grid{grid-template-columns:1fr 1fr}
+    .cand{grid-template-columns:20px 1fr;gap:8px}
+    .bars{grid-column:1 / -1;flex-direction:row;min-width:0}
+    .rr-grid{grid-template-columns:1fr}
+    .rr-mid{transform:rotate(90deg)}
+    .stage-tag{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Retrieval · Augmentation · Generation</div>
+    <h1>The <span class="r">RAG</span> pipeline,<br>one stage at a time.</h1>
+    <p class="lede">A working simulator with a tiny knowledge base. Watch a question travel from <b>retrieval</b> → <b>augmentation</b> → <b>generation</b>, and see exactly where keyword search, semantic search, and re-ranking each do their job.</p>
+    <div class="phasebar">
+      <span><b>Phase 1</b> · Indexing runs once, offline</span>
+      <span><b>Phase 2</b> · Query runs live, per question</span>
+    </div>
+  </header>
+
+  <!-- PHASE 1: INDEXING -->
+  <section class="panel">
+    <div class="panel-head">
+      <span class="panel-num">01</span>
+      <h2>Build the index</h2>
+      <span class="offline-tag">Offline · once</span>
+    </div>
+    <p class="panel-sub">Clean the source docs → split them into <b>chunks</b> → turn each chunk into a <b>vector (embedding)</b> → store the vectors so they can be searched. This is done ahead of time, not per question.</p>
+
+    <div class="idx-grid">
+      <div class="idx-col" id="col-docs"><h4><span class="dot"></span>Knowledge base</h4><div id="docs-list"></div></div>
+      <div class="idx-col" id="col-chunks"><h4><span class="dot"></span>Chunks</h4><div id="chunks-list"></div></div>
+      <div class="idx-col" id="col-vecs"><h4><span class="dot"></span>Embeddings</h4><div id="vecs-list"></div></div>
+      <div class="idx-col" id="col-store"><h4><span class="dot"></span>Vector store</h4>
+        <div class="store-note" id="store-note"><span class="store-count" id="store-count">0</span>vectors indexed and searchable.</div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <button class="run-btn" id="build-btn" style="font-size:14px;padding:11px 22px">Build the index →</button>
+    </div>
+  </section>
+
+  <!-- PHASE 2: QUERY -->
+  <section class="panel" id="query-panel" style="opacity:.5;pointer-events:none">
+    <div class="panel-head">
+      <span class="panel-num">02</span>
+      <h2>Ask a question</h2>
+      <span class="online-tag">Online · live</span>
+    </div>
+    <p class="panel-sub">Now run a query through the pipeline. Try the presets to see where keyword and semantic search <b>disagree</b>.</p>
+
+    <div class="controls">
+      <div class="q-row">
+        <input class="q-input" id="query" type="text" placeholder="Type a question about the planets…" value="Which planet is the warmest?">
+        <button class="run-btn" id="run-btn">Run pipeline →</button>
+      </div>
+      <div class="presets" id="presets"></div>
+      <div class="opt-row">
+        <div class="ctl">
+          <label>Retrieval</label>
+          <div class="seg" id="mode-seg" role="group" aria-label="Retrieval method">
+            <button data-mode="keyword">BM25</button>
+            <button data-mode="semantic" class="on">Semantic</button>
+            <button data-mode="hybrid">Hybrid</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <label for="topk">top-k</label>
+          <input type="range" id="topk" min="1" max="6" value="3">
+          <span class="kval" id="kval">3</span>
+        </div>
+        <div class="ctl">
+          <label for="rerank">Re-rank</label>
+          <label class="switch"><input type="checkbox" id="rerank"><span class="slider-sw"></span></label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PIPELINE OUTPUT -->
+  <section class="panel" id="output-panel" style="opacity:.5;pointer-events:none">
+    <div class="panel-head">
+      <span class="panel-num">03</span>
+      <h2>Inside the pipeline</h2>
+    </div>
+    <div id="pipeline">
+      <div class="placeholder">Build the index, then run a query to trace the stages.</div>
+    </div>
+  </section>
+
+  <footer>
+    <b>Reading the bars.</b> Every retrieved chunk is scored by the method(s) you chose. The colour tells you which method produced the score — this is where you can literally see BM25 and semantic search rank things differently.
+    <div class="method-key">
+      <span><span class="swatch" style="background:var(--keyword)"></span>Keyword / BM25 — exact word overlap</span>
+      <span><span class="swatch" style="background:var(--semantic)"></span>Semantic / vector — meaning &amp; synonyms</span>
+      <span><span class="swatch" style="background:var(--hybrid)"></span>Hybrid — the two, merged</span>
+    </div>
+    <p style="margin-top:14px">Embeddings, scores and the final answer are <b>simulated in your browser</b> so the whole thing runs offline — the mechanics and ordering are real, the numbers are illustrative.</p>
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================
+   TINY KNOWLEDGE BASE
+   ============================================================ */
+const DOCS = [
+  {title:"Mars",   text:"Mars is called the Red Planet because iron oxide dust on its surface gives it a rusty colour. Its average surface temperature is about minus 60 Celsius, far colder than Earth."},
+  {title:"Venus",  text:"Venus has a thick carbon dioxide atmosphere that traps heat. This runaway greenhouse effect makes it the hottest planet in the solar system, hotter even than Mercury."},
+  {title:"Jupiter",text:"Jupiter is the largest planet in the solar system. It is a gas giant with more mass than all the other planets combined."},
+  {title:"Saturn", text:"Saturn is best known for its bright, extensive ring system. The rings are made mostly of ice particles with a smaller amount of rocky debris."},
+  {title:"Earth",  text:"Earth is the only planet known to support life. Liquid water covers roughly 71 percent of its surface, which is central to its habitability."},
+  {title:"The Sun",text:"The Sun is the star at the centre of the solar system. It holds about 99.8 percent of the system's total mass and anchors every orbit."}
+];
+
+const PRESETS = [
+  {q:"Which planet is the warmest?",       hint:"semantic wins — no chunk says 'warm'"},
+  {q:"What has rings?",                     hint:"keyword & semantic agree"},
+  {q:"Where can you find liquid water?",    hint:"semantic bridges the wording"},
+  {q:"red planet",                          hint:"keyword nails the exact term"},
+  {q:"Is there anywhere life could exist?", hint:"semantic finds 'support life'"}
+];
+
+/* light synonym / concept map used ONLY by semantic search,
+   so it can bridge vocabulary that keyword search cannot */
+const SYN = {
+  warm:["hot","hottest","heat","temperature","greenhouse"],
+  warmest:["hot","hottest","heat","temperature"],
+  hot:["hottest","heat","temperature","greenhouse","warm"],
+  cold:["colder","temperature","minus","freezing"],
+  temperature:["hot","cold","heat","celsius","degrees"],
+  big:["largest","large","giant","mass","massive"],
+  biggest:["largest","giant","mass"],
+  largest:["giant","mass","massive"],
+  water:["liquid","ocean","habitability","surface"],
+  liquid:["water","surface"],
+  life:["support","habitability","habitable","live","exist"],
+  live:["life","support","habitable","exist"],
+  exist:["life","support","habitable"],
+  rings:["ring","ice","particles","debris"],
+  ring:["rings","ice","particles"],
+  star:["sun","centre","mass"],
+  colour:["color","rusty","red"],
+  color:["colour","rusty","red"]
+};
+
+const STOP = new Set("a an the is are of on in it its to and or with that this as be by for has have its than even most only which about".split(" "));
+
+/* ============================================================
+   TEXT UTILITIES
+   ============================================================ */
+function clean(s){return s.toLowerCase().replace(/[^a-z0-9\s]/g," ").replace(/\s+/g," ").trim();}
+function stem(w){return w.replace(/(ing|ed|es|s)$/,"") || w;} // very light
+function tokenize(s){return clean(s).split(" ").filter(w=>w && !STOP.has(w));}
+function expand(tokens){
+  const out=new Set();
+  tokens.forEach(t=>{
+    out.add(t);
+    if(SYN[t]) SYN[t].forEach(x=>out.add(x));
+  });
+  return [...out];
+}
+
+/* fake but deterministic 6-dim embedding for display */
+function fakeVec(tokens){
+  const v=[0,0,0,0,0,0];
+  tokens.forEach(t=>{for(let i=0;i<t.length;i++){v[i%6]+=t.charCodeAt(i);}});
+  const norm=Math.sqrt(v.reduce((a,b)=>a+b*b,0))||1;
+  return v.map(x=>(x/norm).toFixed(2));
+}
+
+/* ============================================================
+   INDEX
+   ============================================================ */
+let CHUNKS=[];  // {id, src, text, tokens, expanded, df-ready}
+let DF={};      // document frequency per token (over expanded chunks) for idf
+let N=0;
+
+function buildIndex(){
+  CHUNKS=[];
+  DOCS.forEach(d=>{
+    // chunk = one sentence
+    d.text.split(/(?<=\.)\s+/).forEach(sent=>{
+      const text=sent.trim();
+      if(!text) return;
+      const tokens=tokenize(text);
+      CHUNKS.push({id:CHUNKS.length,src:d.title,text,tokens,expanded:expand(tokens)});
+    });
+  });
+  N=CHUNKS.length;
+  DF={};
+  CHUNKS.forEach(c=>{
+    new Set(c.expanded).forEach(t=>{DF[t]=(DF[t]||0)+1;});
+  });
+}
+function idf(t){return Math.log(1+(N)/((DF[t]||0)+0.5));}
+
+/* ============================================================
+   SCORING
+   ============================================================ */
+function bm25(qTokens){
+  // simplified BM25 over exact (stemmed) tokens, no synonym expansion
+  const k1=1.4,b=0.75;
+  const avgdl=CHUNKS.reduce((a,c)=>a+c.tokens.length,0)/N;
+  const qs=qTokens.map(stem);
+  return CHUNKS.map(c=>{
+    const cs=c.tokens.map(stem);
+    let s=0;
+    new Set(qs).forEach(q=>{
+      const tf=cs.filter(x=>x===q).length;
+      if(!tf) return;
+      const dfq=CHUNKS.filter(cc=>cc.tokens.map(stem).includes(q)).length;
+      const idfq=Math.log(1+(N-dfq+0.5)/(dfq+0.5));
+      s+=idfq*(tf*(k1+1))/(tf+k1*(1-b+b*c.tokens.length/avgdl));
+    });
+    return {id:c.id,score:s};
+  });
+}
+
+function semantic(qExpanded){
+  // cosine-style overlap on expanded (concept) vectors, idf-weighted
+  const qset=new Set(qExpanded);
+  return CHUNKS.map(c=>{
+    const cset=new Set(c.expanded);
+    let dot=0;
+    qset.forEach(t=>{if(cset.has(t)) dot+=idf(t)*idf(t);});
+    const qn=Math.sqrt([...qset].reduce((a,t)=>a+idf(t)*idf(t),0))||1;
+    const cn=Math.sqrt([...cset].reduce((a,t)=>a+idf(t)*idf(t),0))||1;
+    return {id:c.id,score:dot/(qn*cn)};
+  });
+}
+
+function normalise(arr){
+  const max=Math.max(...arr.map(x=>x.score),1e-9);
+  const min=Math.min(...arr.map(x=>x.score));
+  return arr.map(x=>({id:x.id,score:max>min?(x.score-min)/(max-min):(x.score>0?1:0)}));
+}
+
+/* re-rank: a distinct downstream step that re-scores the SHORTLIST
+   with a more expensive query+chunk relevance model (simulated) */
+function rerank(candidates,qTokens){
+  const qset=new Set(qTokens);
+  return candidates.map(c=>{
+    const chunk=CHUNKS[c.id];
+    // simulate a cross-encoder: reward direct term coverage + presence of
+    // an "answer-like" specific (number/superlative) when relevant
+    const cov=[...qset].filter(t=>chunk.expanded.includes(t)).length/Math.max(qset.size,1);
+    const specific=/\d|hottest|largest|only|most|centre|center/.test(chunk.text.toLowerCase())?0.18:0;
+    const base=c.score*0.55;
+    return {id:c.id, score: Math.min(1, base + cov*0.4 + specific)};
+  }).sort((a,b)=>b.score-a.score);
+}
+
+/* ============================================================
+   RENDER: INDEXING ANIMATION
+   ============================================================ */
+const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait = ms => new Promise(r=>setTimeout(r, reduce?0:ms));
+
+async function animateIndex(){
+  document.getElementById('build-btn').disabled=true;
+  buildIndex();
+  const docsEl=document.getElementById('docs-list');
+  const chunksEl=document.getElementById('chunks-list');
+  const vecsEl=document.getElementById('vecs-list');
+  docsEl.innerHTML=chunksEl.innerHTML=vecsEl.innerHTML='';
+  document.getElementById('store-note').classList.remove('show');
+
+  // docs
+  document.getElementById('col-docs').classList.add('active');
+  for(const d of DOCS){
+    const el=document.createElement('div');
+    el.className='doc-chip';
+    el.innerHTML=`<span class="t">${d.title}</span>${d.text.slice(0,46)}…`;
+    docsEl.appendChild(el);
+    requestAnimationFrame(()=>el.classList.add('show-anim'));
+    await wait(120);
+  }
+  await wait(250);
+  // chunks
+  document.getElementById('col-chunks').classList.add('active');
+  for(const c of CHUNKS){
+    const el=document.createElement('div');
+    el.className='chunk-chip';
+    el.textContent=c.text.length>52?c.text.slice(0,52)+'…':c.text;
+    chunksEl.appendChild(el);
+    requestAnimationFrame(()=>el.classList.add('show-anim'));
+    await wait(90);
+  }
+  await wait(250);
+  // vectors
+  document.getElementById('col-vecs').classList.add('active');
+  for(const c of CHUNKS){
+    const el=document.createElement('div');
+    el.className='vec-chip';
+    el.textContent='['+fakeVec(c.expanded).join(', ')+']';
+    vecsEl.appendChild(el);
+    requestAnimationFrame(()=>el.classList.add('show-anim'));
+    await wait(80);
+  }
+  await wait(200);
+  // store
+  document.getElementById('col-store').classList.add('active');
+  document.getElementById('store-count').textContent=CHUNKS.length;
+  document.getElementById('store-note').classList.add('show');
+
+  // unlock phase 2
+  const qp=document.getElementById('query-panel'), op=document.getElementById('output-panel');
+  qp.style.opacity=1; qp.style.pointerEvents='auto';
+  op.style.opacity=1; op.style.pointerEvents='auto';
+  document.getElementById('build-btn').textContent='Rebuild index';
+  document.getElementById('build-btn').disabled=false;
+}
+
+/* ============================================================
+   RENDER: QUERY PIPELINE
+   ============================================================ */
+let MODE='semantic';
+
+function stageShell(idx,title,tag){
+  return `<div class="stage" data-stage="${idx}">
+    <div class="stage-head">
+      <span class="stage-idx">${idx}</span>
+      <span class="stage-title">${title}</span>
+      <span class="stage-tag">${tag}</span>
+    </div>
+    <div class="stage-body"></div>
+  </div>`;
+}
+
+async function litStage(idx,html){
+  const st=document.querySelector(`.stage[data-stage="${idx}"]`);
+  st.querySelector('.stage-body').innerHTML=html;
+  st.classList.add('lit');
+  if(MODE==='semantic'||MODE==='hybrid') st.classList.add('sem');
+  await wait(650);
+}
+
+async function runPipeline(){
+  if(!CHUNKS.length){return;}
+  const q=document.getElementById('query').value.trim()|| "Which planet is the warmest?";
+  const k=+document.getElementById('topk').value;
+  const doRerank=document.getElementById('rerank').checked;
+  document.getElementById('run-btn').disabled=true;
+
+  const qTokens=tokenize(q);
+  const qExpanded=expand(qTokens);
+
+  // build stage shells
+  const pipe=document.getElementById('pipeline');
+  pipe.innerHTML =
+     stageShell(1,'Embed the query', MODE==='keyword'?'tokenise':'tokenise → expand → vector')
+   + stageShell(2,'Retrieve', MODE+' search · scoring all '+CHUNKS.length+' chunks')
+   + stageShell(3, doRerank?'Re-rank':'Re-rank (skipped)', doRerank?'re-score the shortlist':'toggle is off')
+   + stageShell(4,'Augment', 'insert chunks into the prompt')
+   + stageShell(5,'Generate', 'LLM writes the answer');
+
+  /* ---- STAGE 1: embed ---- */
+  let s1=`<div class="stage-note">The query becomes searchable the <b>same way the chunks did</b>: tokenise${MODE!=='keyword'?', expand with related concepts, then embed to a vector':''}.</div>`;
+  s1+=`<span class="lbl">Query tokens</span><div class="tokens">${qTokens.map(t=>`<span class="tok">${t}</span>`).join('')}</div>`;
+  if(MODE!=='keyword'){
+    const extra=qExpanded.filter(t=>!qTokens.includes(t));
+    s1+=`<span class="lbl">+ concept expansion (semantic only)</span><div class="tokens">${qTokens.map(t=>`<span class="tok">${t}</span>`).join('')}${extra.map(t=>`<span class="tok exp">${t}</span>`).join('')}</div>`;
+    s1+=`<span class="lbl">Query vector</span><div class="qvec">[ ${fakeVec(qExpanded).join(',  ')} ]</div>`;
+  }
+  await litStage(1,s1);
+
+  /* ---- STAGE 2: retrieve ---- */
+  let key=normalise(bm25(qTokens));
+  let sem=normalise(semantic(qExpanded));
+  let combined;
+  if(MODE==='keyword') combined=key.map(x=>({id:x.id,score:x.score,key:x.score,sem:0}));
+  else if(MODE==='semantic') combined=sem.map(x=>({id:x.id,score:x.score,key:0,sem:x.score}));
+  else combined=key.map((x,i)=>({id:x.id, key:x.score, sem:sem[i].score, score:0.5*x.score+0.5*sem[i].score}));
+
+  combined.sort((a,b)=>b.score-a.score);
+  const shortlist=combined.slice(0,k);
+
+  const noteByMode={
+    keyword:`<b>BM25</b> ranks by exact word overlap (with term rarity weighting). Fast and precise on shared vocabulary — blind to synonyms.`,
+    semantic:`<b>Semantic search</b> compares meaning via the vectors, so it matches related wording the query never used. This is why it can beat keyword search.`,
+    hybrid:`<b>Hybrid</b> runs both searches and merges the scores. You keep BM25's precision on exact terms and semantic's reach across vocabulary.`
+  };
+  let s2=`<div class="stage-note">${noteByMode[MODE]}</div>`;
+  combined.forEach((c,i)=>{
+    if(i===k) s2+=`<div class="cutline">top-k cutoff · k = ${k}</div>`;
+    const chunk=CHUNKS[c.id];
+    const inTop=i<k;
+    let bars='';
+    if(MODE==='keyword'||MODE==='hybrid')
+      bars+=`<div class="bar-line"><div class="bar-track"><div class="bar-fill key" data-w="${(c.key*100).toFixed(0)}"></div></div><span class="bar-val key">${c.key.toFixed(2)}</span></div>`;
+    if(MODE==='semantic'||MODE==='hybrid')
+      bars+=`<div class="bar-line"><div class="bar-track"><div class="bar-fill sem" data-w="${(c.sem*100).toFixed(0)}"></div></div><span class="bar-val sem">${c.sem.toFixed(2)}</span></div>`;
+    if(MODE==='hybrid')
+      bars+=`<div class="bar-line"><div class="bar-track"><div class="bar-fill hyb" data-w="${(c.score*100).toFixed(0)}"></div></div><span class="bar-val hyb">${c.score.toFixed(2)}</span></div>`;
+    s2+=`<div class="cand ${inTop?'top':''}">
+      <span class="cand-rank">${i+1}</span>
+      <div class="cand-body"><span class="src">${chunk.src}</span><div class="txt">${chunk.text}</div></div>
+      <div class="bars">${bars}</div>
+    </div>`;
+  });
+  await litStage(2,s2);
+  // animate bars
+  setTimeout(()=>document.querySelectorAll(`.stage[data-stage="2"] .bar-fill`).forEach(b=>b.style.width=b.dataset.w+'%'),60);
+  await wait(300);
+
+  /* ---- STAGE 3: rerank ---- */
+  let finalChunks;
+  if(doRerank){
+    const before=shortlist.map(c=>({id:c.id,score:c.score}));
+    const after=rerank(shortlist,qTokens);
+    finalChunks=after;
+    let s3=`<div class="stage-note warn"><b>Separate from hybrid search.</b> Re-ranking takes only the shortlist and re-scores each chunk with a slower, more precise query-and-chunk model — then reorders. Retrieve broadly &amp; cheaply, then re-rank narrowly &amp; accurately.</div>`;
+    s3+=`<div class="rr-grid">
+      <div class="rr-col"><h5>Retrieved order</h5>${before.map((c,i)=>`<div class="rr-item"><span>${i+1}. ${CHUNKS[c.id].src}: ${CHUNKS[c.id].text.slice(0,30)}…</span><span class="s">${c.score.toFixed(2)}</span></div>`).join('')}</div>
+      <div class="rr-mid">→</div>
+      <div class="rr-col after"><h5>Re-ranked order</h5>${after.map((c,i)=>`<div class="rr-item"><span>${i+1}. ${CHUNKS[c.id].src}: ${CHUNKS[c.id].text.slice(0,30)}…</span><span class="s">${c.score.toFixed(2)}</span></div>`).join('')}</div>
+    </div>`;
+    await litStage(3,s3);
+  } else {
+    finalChunks=shortlist;
+    await litStage(3,`<div class="stage-note warn">Re-ranking is <b>off</b>. The top-k chunks go straight to augmentation in their retrieved order. Turn the toggle on to add a precision pass — it's a distinct step, not part of retrieval.</div>`);
+  }
+  await wait(200);
+
+  /* ---- STAGE 4: augment ---- */
+  const ctxChunks=finalChunks.map(c=>CHUNKS[c.id]);
+  let s4=`<div class="stage-note"><b>Augmentation = putting the retrieved chunks into the prompt as context.</b> It does not rewrite the question — it gives the model source material to answer <i>from</i>, so the answer is grounded instead of guessed.</div>`;
+  s4+=`<div class="prompt-box">
+<span class="p-role">system:</span> <span class="p-instr">Answer the question using only the context below.</span>
+
+<span class="p-ctx-lbl">### Context (retrieved)</span>
+${ctxChunks.map(c=>`<span class="p-chunk">• [${c.src}] ${c.text}</span>`).join('')}
+<span class="p-q-lbl">### Question</span>
+<span class="p-q">${q}</span></div>`;
+  await litStage(4,s4);
+  await wait(200);
+
+  /* ---- STAGE 5: generate ---- */
+  const best=ctxChunks[0];
+  const answer=composeAnswer(q,ctxChunks);
+  let s5=`<div class="stage-note">The full prompt — question <b>plus</b> retrieved context — goes to the LLM, which writes a grounded answer and can cite its sources.</div>`;
+  s5+=`<div class="answer"><span class="cite">Answer · grounded in ${ctxChunks.map(c=>c.src).filter((v,i,a)=>a.indexOf(v)===i).join(', ')}</span><br>${answer}</div>`;
+  s5+=`<p class="gen-caveat">In this demo the answer is stitched from the top chunk. In a real system the LLM synthesises across all the context above.</p>`;
+  await litStage(5,s5);
+
+  document.getElementById('run-btn').disabled=false;
+}
+
+/* naive answer composer so the demo has an output without an LLM */
+function composeAnswer(q,chunks){
+  if(!chunks.length) return "No relevant context was retrieved.";
+  const c=chunks[0];
+  return `${c.text} <span style="color:var(--faint)">(retrieved as the top match for your question)</span>`;
+}
+
+/* ============================================================
+   WIRING
+   ============================================================ */
+document.getElementById('build-btn').addEventListener('click',animateIndex);
+document.getElementById('run-btn').addEventListener('click',runPipeline);
+
+document.getElementById('topk').addEventListener('input',e=>{
+  document.getElementById('kval').textContent=e.target.value;
+});
+document.getElementById('rerank'); // noop
+
+document.querySelectorAll('#mode-seg button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#mode-seg button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    MODE=b.dataset.mode;
+  });
+});
+
+const presetsEl=document.getElementById('presets');
+PRESETS.forEach(p=>{
+  const el=document.createElement('button');
+  el.className='preset';
+  el.innerHTML=`${p.q} <span style="color:var(--faint)">· ${p.hint}</span>`;
+  el.addEventListener('click',()=>{document.getElementById('query').value=p.q;});
+  presetsEl.appendChild(el);
+});
+
+document.getElementById('query').addEventListener('keydown',e=>{
+  if(e.key==='Enter' && CHUNKS.length) runPipeline();
+});
+</script>
+</body>
+</html>
